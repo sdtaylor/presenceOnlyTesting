@@ -3,9 +3,10 @@ library(tidyr)
 library(doParallel)
 library(magrittr)
 library(stringr)
-library(geosphere)
+library(geosphere) #for regularCoordinates & areaPolygon
+library(raster)
 library(gbm)
-library(Metrics)
+library(Metrics) #for auc
 
 dataFolder='~/data/bbs/'
 
@@ -42,12 +43,12 @@ occData=counts %>%
   dplyr::select(Aou, siteID,Year, RPID) %>%
   left_join(weather, by=c('siteID','Year','RPID')) %>%
   filter(runtype==1)  %>%
-  dplyr::select(-runtype, -RPID, -Year) %>%
+  dplyr::select(-runtype, -RPID) %>%
   distinct()
 
 #Only keep sites that have been sampled 10 or more years in the past 14.
 sitesToKeep=occData %>%
-  select(siteID, Year) %>%
+  dplyr::select(siteID, Year) %>%
   distinct() %>%
   group_by(siteID) %>%
   summarize(yearsSampled=n()) %>%
@@ -55,10 +56,10 @@ sitesToKeep=occData %>%
   filter(yearsSampled >=10) %>%
   extract2('siteID')
 
-#occData = occData %>%
-#  dplyr::select(-runtype, -RPID, -Year) %>%
-#  distinct() %>%
-#  filter(siteID %in% sitesToKeep) %>%
+occData = occData %>%
+  dplyr::select(-Year) %>%
+  distinct() %>%
+  filter(siteID %in% sitesToKeep)
 #  mutate(presence=1) %>%
 #  complete(Aou, siteID, fill=list(presence=0))
 
@@ -78,8 +79,9 @@ centers = as.data.frame(regularCoordinates(12)) %>%
 inner.radius = 1.5E5
 outer.radius = 3E5
 
-dists=pointDistance(as.matrix(select(routes, lon, lat)),as.matrix(centers), lonlat=TRUE, allpairs = TRUE)
+dists=pointDistance(as.matrix(dplyr::select(routes, lon, lat)),as.matrix(centers), lonlat=TRUE, allpairs = TRUE)
 dists=as.data.frame(dists)
+dists$siteID=routes$siteID
 dists=dists %>%
   gather(centerPoint, dist, -siteID)
 
@@ -119,12 +121,29 @@ route_data$type=routes$type
 route_data = route_data %>%
   filter(!is.na(bio1))
 
+#Flags for background data will always be 
 background_data= as.data.frame(extract(bioclim_stack, background_points)) %>%
-  filter(!is.na(bio1))
+  filter(!is.na(bio1)) %>%
+  mutate(presence=0, type='train')
+
+########################################################################
+#Get the area of a species distrubtion by drawing a convex hull over presence points
+#75% sure this is calculating as expected. 
+get_area=function(p){
+  hull=grDevices::chull(p$lon, p$lat)
+  hull=c(hull, hull[1])
+  hull_coord=p[hull,]
+  
+  hull_polygon=SpatialPolygons(list(Polygons(list(Polygon(hull_coord)), ID=1)))
+  
+  #convert area to square km
+  geosphere::areaPolygon(hull_polygon)/(1000^2)
+}
 
 ########################################################################
 #Wrapper for model
 modelFormula=as.formula('presence ~ bio1+bio2+bio4+bio5+bio6+bio7+bio8+bio9+bio10+bio11+bio12+bio13+bio14+bio16+bio17+bio18+bio19')
+
 sdm_model=function(trainData, testData){
   model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
             data= trainData)
@@ -137,25 +156,63 @@ sdm_model=function(trainData, testData){
 #Species to use in analysis. hand picked by looking at presence/absence data over north america
 spp_list=c(60,1840,3370,3290,3090,2971,2970,2890,2882,4430,4340,4300,3620,7610,7260,7070,6883,6882,6710,7510)
 
+results=data.frame()
+
 for(this_sp in spp_list){
-  #Setup presence absent
+  
+  print(paste('Species:', this_sp))
+  #Setup datasets for this species
   this_sp_data=occData %>%
     filter(Aou==this_sp) %>%
     mutate(presence=1) %>%
     right_join(route_data, 'siteID') %>%
     mutate(presence=ifelse(is.na(presence), 0, 1))
   
-  #Train p/a model on route only training subset
-  pa_predictions=sdm_model(trainData=filter(this_sp_data, type=='train'), testData=filter(this_sp_data, type=='test'))
-  #evaulate p/a model on route testing subset (presence and absence)
+  #Presence/absence training data.
+  pa_train=this_sp_data %>%
+    filter(type=='train')
   
-  #Setup presence only with background data
-  this_sp_data = this_sp_data %>%
-    filter(presence==1)
+  #Presence only data with background points used for abscences
+  po_train=this_sp_data %>%
+    filter(type=='train', presence==1) %>%
+    bind_rows(background_data)
+  
+  #evaluation used for both is true presence/absence from test set holdout
+  evaluation=this_sp_data %>%
+    filter(type=='test')
+  
+  #Train p/a model on route only training subset
+  pa_predictions=sdm_model(trainData=pa_train, testData=evaluation)
+  #evaulate p/a model on route testing subset (presence and absence)
+  pa_auc=auc(evaluation$presence, pa_predictions)
+
   #train p/o model on route only traiing subset (without absences) and all background data
-  po_predictions=sdm_model(trainData=filter(this_sp_data, type=='train'), testData=filter(this_sp_data, type=='test'))
+  po_predictions=sdm_model(trainData=po_train, testData=evaluation)
   #evaluate p/o model on route testing subset (presence and absence) 
+  po_auc=auc(evaluation$presence, po_predictions)
+  
+  #Get the area of the species distribution.
+  all_presence_sites=this_sp_data %>%
+    filter(presence==1) %>%
+    extract2('siteID')
+  
+  #Get lat long of presence only sites to calculate area
+  present_sites=this_sp_data %>%
+    filter(presence==1) %>%
+    extract2('siteID')
+  
+  present_sites=routes %>%
+    filter(siteID %in% present_sites) %>%
+    dplyr::select(lon,lat)
+  
+  sp_area=get_area(present_sites)
+  
+  results_this_sp=data.frame(Aou=this_sp, po_auc=po_auc, pa_auc=pa_auc, sp_area=sp_area)
+  
+  results=rbind(results, results_this_sp)
 }
+
+
 
 
 
