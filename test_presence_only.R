@@ -153,13 +153,32 @@ sdm_model=function(trainData, testData){
 }
 
 ########################################################################
-#Species to use in analysis. hand picked by looking at presence/absence data over north america
-spp_list=c(60,1840,3370,3290,3090,2971,2970,2890,2882,4430,4340,4300,3620,7610,7260,7070,6883,6882,6710,7510)
+#evaluation metrics
+get_metrics=function(observed, predicted, threshold=0.5){
+  auc=auc(observed, predicted)
+  kappa
+}
 
-results=data.frame()
+###################################################################
+#Setup parallel processing
+####################################################################
 
-for(this_sp in spp_list){
-  
+cl=makeCluster(32)
+registerDoParallel(cl)
+
+########################################################################
+#Orders of relatively not migrant birds to use in analysis. 
+orders_to_use=c('Apodiformes', 'Passeriformes', 'Galliformes','Falconiformes', 'Accipitriformes', 'Strigiformes')
+
+spp_list=species %>%
+  filter(sporder %in% orders_to_use) %>%
+  extract2('AOU')
+spp_list=sample(spp_list)
+
+#results=data.frame()
+#for(this_sp in spp_list){
+results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm')) %dopar% {
+    
   print(paste('Species:', this_sp))
   #Setup datasets for this species
   this_sp_data=occData %>%
@@ -167,6 +186,8 @@ for(this_sp in spp_list){
     mutate(presence=1) %>%
     right_join(route_data, 'siteID') %>%
     mutate(presence=ifelse(is.na(presence), 0, 1))
+  
+  if(sum(this_sp_data$presence)<20){next}
   
   #Presence/absence training data.
   pa_train=this_sp_data %>%
