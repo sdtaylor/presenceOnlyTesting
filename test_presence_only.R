@@ -8,7 +8,34 @@ library(raster)
 library(gbm)
 library(Metrics) #for auc
 
-dataFolder='~/data/bbs/'
+####################################################################################
+#Adjustments based on where this script is being run.
+#################################################################################
+#If running this on hipergator, use "Rscript <thisScript> hipergator" 
+#if running locally use 'Rscript <thisScript> local'
+#if running in rstudio nothing special is needed. 
+
+args=commandArgs(trailingOnly = TRUE)
+
+#If the 1st argument is na (ie, no argument), then this script is being run inside rstudio
+if(is.na(args[1])){
+  print('Running locally (probably rstudio)')
+  dataFolder='~/data/bbs/'
+  numProcs=2
+  resultsFile=paste('./results/results.csv',sep='')
+
+} else if(args[1]=='local') {
+  print('Running locally (probably cli)')
+  dataFolder='~/data/bbs/'
+  numProcs=2
+  resultsFile=paste('./results/results.csv',sep='')
+
+} else if(args[1]=='hipergator') {
+  print('Running on hipergator')
+  dataFolder='/scratch/lfs/shawntaylor/data/bbs/'
+  numProcs=48
+  resultsFile='./results/results.csv'
+}
 
 studyYears=2000:2014
 
@@ -163,7 +190,7 @@ get_metrics=function(observed, predicted, threshold=0.5){
 #Setup parallel processing
 ####################################################################
 
-cl=makeCluster(32)
+cl=makeCluster(numProcs)
 registerDoParallel(cl)
 
 ########################################################################
@@ -177,7 +204,7 @@ spp_list=sample(spp_list)
 
 #results=data.frame()
 #for(this_sp in spp_list){
-results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm')) %dopar% {
+results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm','Metrics')) %dopar% {
     
   print(paste('Species:', this_sp))
   #Setup datasets for this species
@@ -187,7 +214,10 @@ results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','m
     right_join(route_data, 'siteID') %>%
     mutate(presence=ifelse(is.na(presence), 0, 1))
   
-  if(sum(this_sp_data$presence)<20){next}
+  if(sum(this_sp_data$presence)<20){
+      results_this_sp=data.frame(Aou=this_sp, po_auc=NA, pa_auc=NA, sp_area=NA)
+      return(results_this_sp)
+	}
   
   #Presence/absence training data.
   pa_train=this_sp_data %>%
@@ -230,10 +260,11 @@ results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','m
   
   results_this_sp=data.frame(Aou=this_sp, po_auc=po_auc, pa_auc=pa_auc, sp_area=sp_area)
   
-  results=rbind(results, results_this_sp)
+  return(results_this_sp)
+  #results=rbind(results, results_this_sp)
 }
 
-
+write.csv(results, resultsFile, row.names = FALSE)
 
 
 
