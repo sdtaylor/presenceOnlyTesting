@@ -180,10 +180,39 @@ sdm_model=function(trainData, testData){
 }
 
 ########################################################################
+#Choose the threshold for converting to binary by maximizng sensitivy+specificity
+#get_sensitivity=function()
+
+########################################################################
 #evaluation metrics
-get_metrics=function(observed, predicted, threshold=0.5){
-  auc=auc(observed, predicted)
-  kappa
+get_metrics=function(observed, predicted){
+  Auc=auc(observed, predicted)
+  #Kappa=kappa
+  
+  #Choose a threshold by maximizing specificity + sensitivity
+  max_sss=0
+  threshold=0
+  for(t in seq(0.05, 0.95, 0.01)){
+    predicted_binary = ifelse(predicted>t, 1,0)
+    correctly_predicted = observed==predicted_binary
+    
+    tp=sum(correctly_predicted & predicted_binary==1)
+    tn=sum(correctly_predicted & predicted_binary==0)
+    fp=sum((!correctly_predicted) & predicted_binary==1)
+    fn=sum((!correctly_predicted) & predicted_binary==0)
+    
+    sensitivity=sum(tp) / (sum(tp)+sum(fn))
+    specificity=sum(tn) / (sum(tn)+sum(fp))
+    if((sensitivity+specificity) > max_sss){
+      max_sss=(sensitivity+specificity)
+      threshold=t
+    }
+    #print(paste(t, sensitivity, specificity, specificity+sensitivity))
+  }
+  
+  predicted_binary=ifelse(predicted>threshold, 1,0)
+  
+  
 }
 
 ###################################################################
@@ -204,7 +233,7 @@ spp_list=sample(spp_list)
 
 #results=data.frame()
 #for(this_sp in spp_list){
-results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm','Metrics')) %dopar% {
+results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm','Metrics','geosphere')) %dopar% {
     
   print(paste('Species:', this_sp))
   #Setup datasets for this species
