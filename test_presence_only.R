@@ -180,39 +180,61 @@ sdm_model=function(trainData, testData){
 }
 
 ########################################################################
-#Choose the threshold for converting to binary by maximizng sensitivy+specificity
-#get_sensitivity=function()
+#Various evaluation metrics.
+sensitivity=function(observed, predicted){
+  correctly_predicted = observed==predicted
+  
+  tp=sum(correctly_predicted & predicted==1)
+  fn=sum((!correctly_predicted) & predicted==0)
+  return( sum(tp) / (sum(tp)+sum(fn)) )
+}
 
+specificity=function(observed, predicted){
+  correctly_predicted = observed==predicted
+  
+  tn=sum(correctly_predicted & predicted==0)
+  fp=sum((!correctly_predicted) & predicted==1)
+  return( sum(tn) / (sum(tn)+sum(fp)) )
+}
+
+kappa_binary=function(observed, predicted){
+  agreement=predicted==observed
+  predicted_neg=sum(predicted==0)
+  observed_neg=sum(observed==0)
+  predicted_pos=sum(predicted==1)
+  observed_pos=sum(observed==1)
+  total_n=length(observed)
+  expected_accuracy=( ((predicted_neg*observed_neg)/total_n) + ((predicted_pos*observed_pos)/total_n) ) / total_n
+  
+  observed_accuracy=sum(agreement) / total_n
+  return( (observed_accuracy-expected_accuracy) / (1-expected_accuracy) )
+}
 ########################################################################
 #evaluation metrics
 get_metrics=function(observed, predicted){
   Auc=auc(observed, predicted)
-  #Kappa=kappa
-  
+
   #Choose a threshold by maximizing specificity + sensitivity
   max_sss=0
   threshold=0
   for(t in seq(0.05, 0.95, 0.01)){
     predicted_binary = ifelse(predicted>t, 1,0)
-    correctly_predicted = observed==predicted_binary
-    
-    tp=sum(correctly_predicted & predicted_binary==1)
-    tn=sum(correctly_predicted & predicted_binary==0)
-    fp=sum((!correctly_predicted) & predicted_binary==1)
-    fn=sum((!correctly_predicted) & predicted_binary==0)
-    
-    sensitivity=sum(tp) / (sum(tp)+sum(fn))
-    specificity=sum(tn) / (sum(tn)+sum(fp))
-    if((sensitivity+specificity) > max_sss){
-      max_sss=(sensitivity+specificity)
+
+    sens=sensitivity(observed, predicted_binary)
+    spec=specificity(observed, predicted_binary)
+    if(sens + spec > max_sss){
+      max_sss=(sens+spec)
       threshold=t
     }
-    #print(paste(t, sensitivity, specificity, specificity+sensitivity))
   }
   
   predicted_binary=ifelse(predicted>threshold, 1,0)
   
+  k=kappa_binary(observed, predicted_binary)
+  sens=sensitivity(observed, predicted_binary)
+  spec=specificity(observed, predicted_binary)
   
+  return(data.frame(auc=Auc, kappa=k, sensitivity=sens, specificity=spec))
 }
 
 ###################################################################
@@ -231,9 +253,12 @@ spp_list=species %>%
   extract2('AOU')
 spp_list=sample(spp_list)
 
-#results=data.frame()
-#for(this_sp in spp_list){
-results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm','Metrics','geosphere')) %dopar% {
+#Species to use in analysis. hand picked by looking at presence/absence data over north america
+spp_list=c(60,1840,3370,3290,3090,2970,2890,2882,4430,4300,3620,7610,7260,7070,6882,6710,7510)
+
+results=data.frame()
+for(this_sp in spp_list){
+#results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm','Metrics','geosphere')) %dopar% {
     
   print(paste('Species:', this_sp))
   #Setup datasets for this species
@@ -244,8 +269,9 @@ results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','m
     mutate(presence=ifelse(is.na(presence), 0, 1))
   
   if(sum(this_sp_data$presence)<20){
-      results_this_sp=data.frame(Aou=this_sp, po_auc=NA, pa_auc=NA, sp_area=NA)
-      return(results_this_sp)
+      next
+      #results_this_sp=data.frame()
+      #return(results_this_sp)
 	}
   
   #Presence/absence training data.
@@ -264,12 +290,15 @@ results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','m
   #Train p/a model on route only training subset
   pa_predictions=sdm_model(trainData=pa_train, testData=evaluation)
   #evaulate p/a model on route testing subset (presence and absence)
-  pa_auc=auc(evaluation$presence, pa_predictions)
+  pa_metrics=get_metrics(evaluation$presence, pa_predictions)
+  colnames(pa_metrics)=paste('pa', colnames(pa_metrics), sep='_')
+  
 
   #train p/o model on route only traiing subset (without absences) and all background data
   po_predictions=sdm_model(trainData=po_train, testData=evaluation)
   #evaluate p/o model on route testing subset (presence and absence) 
-  po_auc=auc(evaluation$presence, po_predictions)
+  po_metrics=get_metrics(evaluation$presence, po_predictions)
+  colnames(po_metrics)=paste('po', colnames(po_metrics), sep='_')
   
   #Get the area of the species distribution.
   all_presence_sites=this_sp_data %>%
@@ -287,10 +316,13 @@ results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','m
   
   sp_area=get_area(present_sites)
   
-  results_this_sp=data.frame(Aou=this_sp, po_auc=po_auc, pa_auc=pa_auc, sp_area=sp_area)
+  present_sites=sum(this_sp_data$presence)
   
-  return(results_this_sp)
-  #results=rbind(results, results_this_sp)
+  results_this_sp = bind_cols(po_metrics, pa_metrics) %>%
+    mutate(Aou=this_sp, sp_area=sp_area, present_sites=present_sites)
+
+  #return(results_this_sp)
+  results=rbind(results, results_this_sp)
 }
 
 write.csv(results, resultsFile, row.names = FALSE)
