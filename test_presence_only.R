@@ -254,11 +254,11 @@ spp_list=species %>%
 spp_list=sample(spp_list)
 
 #Species to use in analysis. hand picked by looking at presence/absence data over north america
-spp_list=c(60,1840,3370,3290,3090,2970,2890,2882,4430,4300,3620,7610,7260,7070,6882,6710,7510)
+#spp_list=c(60,1840,3370,3290,3090,2970,2890,2882,4430,4300,3620,7610,7260,7070,6882,6710,7510)
 
-results=data.frame()
-for(this_sp in spp_list){
-#results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm','Metrics','geosphere')) %dopar% {
+#results=data.frame()
+#or(this_sp in spp_list){
+results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm','Metrics','geosphere')) %dopar% {
     
   print(paste('Species:', this_sp))
   #Setup datasets for this species
@@ -269,9 +269,8 @@ for(this_sp in spp_list){
     mutate(presence=ifelse(is.na(presence), 0, 1))
   
   if(sum(this_sp_data$presence)<20){
-      next
-      #results_this_sp=data.frame()
-      #return(results_this_sp)
+      #next
+      return(data.frame())
 	}
   
   #Presence/absence training data.
@@ -290,14 +289,16 @@ for(this_sp in spp_list){
   #Train p/a model on route only training subset
   pa_predictions=sdm_model(trainData=pa_train, testData=evaluation)
   #evaulate p/a model on route testing subset (presence and absence)
-  pa_metrics=get_metrics(evaluation$presence, pa_predictions)
+  pa_metrics=try(get_metrics(evaluation$presence, pa_predictions))
+  if(class(pa_metrics)=='try-error'){return(data.frame())}
   colnames(pa_metrics)=paste('pa', colnames(pa_metrics), sep='_')
   
 
   #train p/o model on route only traiing subset (without absences) and all background data
   po_predictions=sdm_model(trainData=po_train, testData=evaluation)
   #evaluate p/o model on route testing subset (presence and absence) 
-  po_metrics=get_metrics(evaluation$presence, po_predictions)
+  po_metrics=try(get_metrics(evaluation$presence, po_predictions))
+  if(class(po_metrics)=='try-error'){return(data.frame())}
   colnames(po_metrics)=paste('po', colnames(po_metrics), sep='_')
   
   #Get the area of the species distribution.
@@ -321,8 +322,8 @@ for(this_sp in spp_list){
   results_this_sp = bind_cols(po_metrics, pa_metrics) %>%
     mutate(Aou=this_sp, sp_area=sp_area, present_sites=present_sites)
 
-  #return(results_this_sp)
-  results=rbind(results, results_this_sp)
+  return(results_this_sp)
+  #results=rbind(results, results_this_sp)
 }
 
 write.csv(results, resultsFile, row.names = FALSE)
