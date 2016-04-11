@@ -1,5 +1,6 @@
 library(dplyr)
 library(ggplot2)
+library(RColorBrewer)
 
 results=read.csv('./results/results.csv') %>%
   filter(!is.na(po_auc), po_kappa>0) %>%
@@ -14,7 +15,7 @@ basegraph=ggplot(results) +
           geom_abline(intercept=0, slope=1) +
           ylab('Presence/Absence Data') +
           xlab('Presence Only Data') +
-          scale_size_continuous(name='Species Range\n (1000 sq. km)')
+          scale_size_continuous(name='Species Range\n (1000 sq. km)') 
 
 #Kappa
 basegraph + 
@@ -36,7 +37,32 @@ basegraph +
   geom_point(aes(x=po_auc, y=pa_auc, size=sp_area)) +
   ggtitle('AUC')
 
+logit=function(vec, reverse=FALSE){
+  if(!reverse){return(log1p(vec/(1-vec)))}
+     else {return( exp(vec)/(1+exp(vec)) )}
+  }
 
 
-#lm1=glm(auc_diff ~ sp_area + present_sites, data=results)
-#summary(lm1)
+auc_lm=lm(logit(pa_auc - po_auc) ~ sp_area*present_sites, data=results)
+summary(auc_lm)
+
+kappa_lm=lm(logit(pa_kappa - po_kappa) ~ sp_area*present_sites, data=results)
+summary(auc_lm)
+
+sens_lm=lm(logit(pa_sensitivity - po_sensitivity) ~ sp_area*present_sites, data=results)
+summary(sens_lm)
+
+spec_lm=lm(logit(pa_specificity - po_specificity) ~ sp_area*present_sites, data=results)
+summary(spec_lm)
+
+
+
+
+
+
+
+
+
+
+
+
