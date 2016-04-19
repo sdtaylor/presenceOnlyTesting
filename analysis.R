@@ -1,6 +1,8 @@
 library(dplyr)
+library(tidyr)
 library(ggplot2)
 library(RColorBrewer)
+library(lme4)
 
 results=read.csv('./results/results.csv') %>%
   filter(!is.na(po_auc), po_kappa>0) %>%
@@ -32,10 +34,13 @@ basegraph +
   geom_point(aes(x=po_specificity, y=pa_specificity, size=sp_area)) +
   ggtitle('Specificity')
 
-#Specificity
+#auc
 basegraph + 
   geom_point(aes(x=po_auc, y=pa_auc, size=sp_area)) +
   ggtitle('AUC')
+
+###########################################################
+#Meta analysis
 
 logit=function(vec, reverse=FALSE){
   if(!reverse){return(log1p(vec/(1-vec)))}
@@ -43,26 +48,32 @@ logit=function(vec, reverse=FALSE){
   }
 
 
-auc_lm=lm(logit(pa_auc - po_auc) ~ sp_area*present_sites, data=results)
+
+metaResults = results %>%
+  select(pa=pa_auc, po=po_auc, Aou, sp_area, present_sites, point_density) %>%
+  gather(model_type,auc, -Aou, -sp_area, -present_sites, -point_density) %>%
+  mutate(point_density=scale(point_density), sp_area=scale(sp_area))
+auc_lm=lm(auc~ model_type +sp_area + point_density + as.factor(Aou) , data=metaResults)
 summary(auc_lm)
 
-kappa_lm=lm(logit(pa_kappa - po_kappa) ~ sp_area*present_sites, data=results)
-summary(auc_lm)
 
-sens_lm=lm(logit(pa_sensitivity - po_sensitivity) ~ sp_area*present_sites, data=results)
-summary(sens_lm)
+metaResults = results %>%
+  select(pa=pa_kappa, po=po_kappa, Aou, sp_area, present_sites, point_density) %>%
+  gather(model_type, kappa , -Aou, -sp_area, -present_sites, -point_density) %>%
+  mutate(point_density=scale(point_density), sp_area=scale(sp_area))
+kappa_lm=lm(kappa~ model_type +sp_area + point_density + as.factor(Aou), data=metaResults)
+summary(kappa_lm)
 
-spec_lm=lm(logit(pa_specificity - po_specificity) ~ sp_area*present_sites, data=results)
+metaResults = results %>%
+  select(pa=pa_sensitivity, po=po_sensitivity, Aou, sp_area, present_sites, point_density) %>%
+  gather(model_type, sensitivity, -Aou, -sp_area, -present_sites, -point_density) %>%
+  mutate(point_density=scale(point_density), sp_area=scale(sp_area))
+sense_lm=lm(sensitivity~ model_type +sp_area + point_density + as.factor(Aou), data=metaResults)
+summary(sense_lm)
+
+metaResults = results %>%
+  select(pa=pa_specificity, po=po_specificity, Aou, sp_area, present_sites, point_density) %>%
+  gather(model_type, specificity, -Aou, -sp_area, -present_sites, -point_density) %>%
+  mutate(point_density=scale(point_density), sp_area=scale(sp_area))
+spec_lm=lm(specificity~ model_type +sp_area + point_density + as.factor(Aou), data=metaResults)
 summary(spec_lm)
-
-
-
-
-
-
-
-
-
-
-
-
