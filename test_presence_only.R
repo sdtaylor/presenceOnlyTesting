@@ -189,6 +189,11 @@ sensitivity=function(observed, predicted){
   return( sum(tp) / (sum(tp)+sum(fn)) )
 }
 
+#Brier score. essentially the MSE of a probabilistic forecast
+brier=function(observed, predicted){
+  return(mean((predicted-observed)^2))
+}
+
 specificity=function(observed, predicted){
   correctly_predicted = observed==predicted
   
@@ -213,7 +218,7 @@ kappa_binary=function(observed, predicted){
 #evaluation metrics
 get_metrics=function(observed, predicted){
   Auc=auc(observed, predicted)
-
+  brier=brier(observed, predicted)
   #Choose a threshold by maximizing specificity + sensitivity
   max_sss=0
   threshold=0
