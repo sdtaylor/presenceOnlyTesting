@@ -3,6 +3,7 @@ library(tidyr)
 library(doParallel)
 library(magrittr)
 library(stringr)
+library(readr)
 library(geosphere) #for regularCoordinates & areaPolygon
 library(raster)
 library(gbm)
@@ -39,7 +40,7 @@ if(is.na(args[1])){
 
 studyYears=2000:2014
 
-counts=read.csv(paste(dataFolder, 'BBS_counts.csv', sep=''))
+counts=read_csv(paste(dataFolder, 'BBS_counts.csv', sep=''))
 routes=read.csv(paste(dataFolder, 'BBS_routes.csv', sep='')) %>%
   mutate(siteID=paste(countrynum, statenum, route,sep='-')) %>%
   dplyr::select(siteID, lat=lati, lon=loni) %>%
@@ -194,6 +195,11 @@ brier=function(observed, predicted){
   return(mean((predicted-observed)^2))
 }
 
+brier_reliability=function(obs, pred){
+  x=verification::verify(obs, pred, bins=T, thresholds = seq(0,1,0.1), show=FALSE)$bs.reliability
+  return(1-x)
+}
+
 specificity=function(observed, predicted){
   correctly_predicted = observed==predicted
   
@@ -238,8 +244,9 @@ get_metrics=function(observed, predicted){
   k=kappa_binary(observed, predicted_binary)
   sens=sensitivity(observed, predicted_binary)
   spec=specificity(observed, predicted_binary)
+  brier_rel=brier_reliability(observed, predicted)
   
-  return(data.frame(auc=Auc, kappa=k, sensitivity=sens, specificity=spec))
+  return(data.frame(auc=Auc, kappa=k, sensitivity=sens, specificity=spec, brier=brier, brier_rel=brier_rel))
 }
 
 ###################################################################
@@ -259,11 +266,11 @@ spp_list=species %>%
 spp_list=sample(spp_list)
 
 #Species to use in analysis. hand picked by looking at presence/absence data over north america
-#spp_list=c(60,1840,3370,3290,3090,2970,2890,2882,4430,4300,3620,7610,7260,7070,6882,6710,7510)
+spp_list=c(60,1840,3370,3290,3090,2970,2890,2882,4430,4300,3620,7610,7260,7070,6882,6710,7510)
 
 #results=data.frame()
 #or(this_sp in spp_list){
-results=foreach(this_sp=spp_list, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm','Metrics','geosphere')) %dopar% {
+results=foreach(this_sp=spp_list[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm','Metrics','geosphere')) %do% {
     
   print(paste('Species:', this_sp))
   #Setup datasets for this species
