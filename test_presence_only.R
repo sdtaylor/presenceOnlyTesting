@@ -33,7 +33,7 @@ if(is.na(args[1])){
 
 } else if(args[1]=='hipergator') {
   print('Running on hipergator')
-  dataFolder='/scratch/lfs/shawntaylor/data/bbs/'
+  dataFolder='/ufrc/ewhite/shawntaylor/data/bbs/'
   numProcs=48
   resultsFile='./results/results.csv'
 }
