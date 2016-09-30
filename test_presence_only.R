@@ -253,8 +253,8 @@ get_metrics=function(observed, predicted){
 #Setup parallel processing
 ####################################################################
 
-cl=makeCluster(numProcs)
-registerDoParallel(cl)
+#cl=makeCluster(numProcs)
+registerDoParallel(cores = numProcs)
 
 ########################################################################
 #Orders of relatively not migrant birds to use in analysis. 
@@ -270,7 +270,7 @@ spp_list=c(60,1840,3370,3290,3090,2970,2890,2882,4430,4300,3620,7610,7260,7070,6
 
 #results=data.frame()
 #or(this_sp in spp_list){
-results=foreach(this_sp=spp_list[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm','Metrics','geosphere')) %do% {
+results=foreach(this_sp=spp_list[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm','Metrics','geosphere')) %dopar% {
     
   print(paste('Species:', this_sp))
   #Setup datasets for this species
